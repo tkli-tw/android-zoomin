@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#000000">
+  <title>Zoomin 放大鏡</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --accent: #ffb54a;
+      --panel: rgba(20, 20, 20, .82);
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-right: env(safe-area-inset-right, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --safe-left: env(safe-area-inset-left, 0px);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body, main {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+    }
+
+    button { font: inherit; }
+
+    #viewport {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      background: #050505;
+    }
+
+    #camera {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scale(var(--zoom, 1));
+      transform-origin: center;
+      transition: transform 120ms ease-out;
+    }
+
+    #status {
+      position: absolute;
+      z-index: 4;
+      left: 50%;
+      top: 50%;
+      width: min(88vw, 480px);
+      transform: translate(-50%, -50%);
+      padding: 20px;
+      border: 1px solid rgba(255, 255, 255, .18);
+      border-radius: 18px;
+      background: rgba(10, 10, 10, .86);
+      text-align: center;
+      line-height: 1.55;
+      backdrop-filter: blur(12px);
+    }
+
+    #status[hidden] { display: none; }
+    #status p { margin: 0 0 16px; color: #ddd; }
+
+    #start {
+      min-height: 52px;
+      padding: 0 22px;
+      border: 0;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #211400;
+      font-weight: 750;
+      cursor: pointer;
+    }
+
+    #topbar {
+      position: absolute;
+      z-index: 3;
+      top: calc(12px + var(--safe-top));
+      left: calc(12px + var(--safe-left));
+      right: calc(12px + var(--safe-right));
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+    }
+
+    #zoom-label {
+      padding: 7px 12px;
+      border-radius: 999px;
+      background: var(--panel);
+      font-variant-numeric: tabular-nums;
+      backdrop-filter: blur(10px);
+    }
+
+    #hand-mode {
+      min-width: 52px;
+      min-height: 52px;
+      border: 1px solid rgba(255, 255, 255, .22);
+      border-radius: 50%;
+      background: var(--panel);
+      color: #fff;
+      cursor: pointer;
+      pointer-events: auto;
+      backdrop-filter: blur(10px);
+    }
+
+    #toolbar {
+      position: absolute;
+      z-index: 3;
+      display: flex;
+      gap: 10px;
+      padding: 10px;
+      border: 1px solid rgba(255, 255, 255, .16);
+      border-radius: 20px;
+      background: var(--panel);
+      backdrop-filter: blur(12px);
+    }
+
+    .tool {
+      width: 58px;
+      height: 58px;
+      padding: 0;
+      border: 0;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, .13);
+      color: #fff;
+      font-size: 26px;
+      font-weight: 700;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+
+    .tool:active { background: rgba(255, 181, 74, .42); }
+    .tool.active { background: var(--accent); color: #211400; }
+    .tool:disabled { opacity: .35; cursor: default; }
+
+    @media (orientation: portrait) {
+      #toolbar {
+        bottom: calc(12px + var(--safe-bottom));
+        flex-direction: row;
+      }
+
+      body.left #toolbar { left: calc(12px + var(--safe-left)); }
+      body.right #toolbar { right: calc(12px + var(--safe-right)); flex-direction: row-reverse; }
+    }
+
+    @media (orientation: landscape) {
+      #toolbar {
+        bottom: calc(12px + var(--safe-bottom));
+        flex-direction: column-reverse;
+      }
+
+      body.left #toolbar { left: calc(12px + var(--safe-left)); }
+      body.right #toolbar { right: calc(12px + var(--safe-right)); }
+    }
+  </style>
+</head>
+<body class="left">
+  <main>
+    <div id="viewport">
+      <video id="camera" autoplay playsinline muted></video>
+    </div>
+
+    <div id="topbar">
+      <output id="zoom-label" aria-live="polite">1.0×</output>
+      <button id="hand-mode" type="button" aria-label="切換左右手模式">左</button>
+    </div>
+
+    <div id="status">
+      <p id="message">點選「開啟相機」後，請允許瀏覽器使用後鏡頭。影像只在你的裝置上顯示。</p>
+      <button id="start" type="button">開啟相機</button>
+    </div>
+
+    <nav id="toolbar" aria-label="放大鏡工具列">
+      <button id="zoom-in" class="tool" type="button" aria-label="放大">+</button>
+      <button id="zoom-out" class="tool" type="button" aria-label="縮小">−</button>
+      <button id="capture" class="tool" type="button" aria-label="截圖">◉</button>
+      <button id="torch" class="tool" type="button" aria-label="手電筒" disabled>☼</button>
+    </nav>
+  </main>
+
+  <canvas id="canvas" hidden></canvas>
+
+  <script>
+    (() => {
+      const video = document.querySelector('#camera');
+      const canvas = document.querySelector('#canvas');
+      const status = document.querySelector('#status');
+      const message = document.querySelector('#message');
+      const startButton = document.querySelector('#start');
+      const zoomLabel = document.querySelector('#zoom-label');
+      const handButton = document.querySelector('#hand-mode');
+      const zoomInButton = document.querySelector('#zoom-in');
+      const zoomOutButton = document.querySelector('#zoom-out');
+      const captureButton = document.querySelector('#capture');
+      const torchButton = document.querySelector('#torch');
+
+      let stream = null;
+      let track = null;
+      let zoom = 1;
+      let torchOn = false;
+      let torchSupported = false;
+
+      function updateZoom(next) {
+        zoom = Math.min(8, Math.max(1, Math.round(next * 10) / 10));
+        video.style.setProperty('--zoom', zoom);
+        zoomLabel.value = `${zoom.toFixed(1)}×`;
+        zoomOutButton.disabled = zoom <= 1;
+        zoomInButton.disabled = zoom >= 8;
+      }
+
+      function showMessage(text, buttonText = '重新開啟') {
+        message.textContent = text;
+        startButton.textContent = buttonText;
+        status.hidden = false;
+      }
+
+      function stopCamera() {
+        if (stream) stream.getTracks().forEach(item => item.stop());
+        stream = null;
+        track = null;
+        video.srcObject = null;
+        torchOn = false;
+        torchSupported = false;
+        torchButton.classList.remove('active');
+        torchButton.disabled = true;
+      }
+
+      async function startCamera() {
+        stopCamera();
+
+        if (!navigator.mediaDevices?.getUserMedia) {
+          const localHint = location.protocol === 'file:'
+            ? '這個瀏覽器不允許本機 HTML 檔案使用相機。請改用 HTTPS 網站或 localhost 開啟。'
+            : '這個瀏覽器不支援網頁相機，或目前不是安全的 HTTPS 連線。';
+          showMessage(localHint, '再試一次');
+          return;
+        }
+
+        startButton.disabled = true;
+        startButton.textContent = '開啟中…';
+
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: {
+              facingMode: { ideal: 'environment' },
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+            },
+          });
+          track = stream.getVideoTracks()[0];
+          video.srcObject = stream;
+          await video.play();
+          status.hidden = true;
+
+          const capabilities = track.getCapabilities?.() ?? {};
+          torchSupported = capabilities.torch === true ||
+            (Array.isArray(capabilities.torch) && capabilities.torch.includes(true));
+          torchButton.disabled = !torchSupported;
+        } catch (error) {
+          const detail = error?.name === 'NotAllowedError'
+            ? '相機權限被拒絕。請在瀏覽器的網站設定中允許相機後再試。'
+            : `無法開啟相機：${error?.message || error}`;
+          showMessage(detail);
+        } finally {
+          startButton.disabled = false;
+        }
+      }
+
+      async function toggleTorch() {
+        if (!track || !torchSupported) return;
+        const next = !torchOn;
+        try {
+          await track.applyConstraints({ advanced: [{ torch: next }] });
+          torchOn = next;
+          torchButton.classList.toggle('active', torchOn);
+        } catch (_) {
+          torchSupported = false;
+          torchButton.disabled = true;
+          torchButton.classList.remove('active');
+          showMessage('這個瀏覽器或鏡頭無法控制手電筒。');
+        }
+      }
+
+      function capture() {
+        if (!video.videoWidth || !video.videoHeight) return;
+
+        const sourceWidth = video.videoWidth / zoom;
+        const sourceHeight = video.videoHeight / zoom;
+        const sourceX = (video.videoWidth - sourceWidth) / 2;
+        const sourceY = (video.videoHeight - sourceHeight) / 2;
+
+        canvas.width = Math.round(sourceWidth);
+        canvas.height = Math.round(sourceHeight);
+        const context = canvas.getContext('2d');
+        context.drawImage(
+          video,
+          sourceX,
+          sourceY,
+          sourceWidth,
+          sourceHeight,
+          0,
+          0,
+          canvas.width,
+          canvas.height,
+        );
+
+        canvas.toBlob(blob => {
+          if (!blob) return;
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+          link.href = url;
+          link.download = `zoomin-${stamp}.jpg`;
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1500);
+        }, 'image/jpeg', .94);
+      }
+
+      startButton.addEventListener('click', startCamera);
+      zoomInButton.addEventListener('click', () => updateZoom(zoom + .5));
+      zoomOutButton.addEventListener('click', () => updateZoom(zoom - .5));
+      captureButton.addEventListener('click', capture);
+      torchButton.addEventListener('click', toggleTorch);
+      handButton.addEventListener('click', () => {
+        const nextIsRight = document.body.classList.contains('left');
+        document.body.classList.toggle('left', !nextIsRight);
+        document.body.classList.toggle('right', nextIsRight);
+        handButton.textContent = nextIsRight ? '右' : '左';
+        handButton.setAttribute('aria-label', `目前為${nextIsRight ? '右' : '左'}手模式，點選可切換`);
+      });
+
+      window.addEventListener('pagehide', stopCamera);
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden && stream) {
+          stopCamera();
+          showMessage('相機已在離開畫面時關閉。', '重新開啟');
+        }
+      });
+
+      updateZoom(1);
+    })();
+  </script>
+</body>
+</html>

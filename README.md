@@ -10,6 +10,8 @@
 - 手電筒補光
 - 左手／右手模式，工具列會隨直向與橫向調整
 
+根目錄的 `magnifier.html` 是不依賴 Flutter 的單檔網頁版。可以直接下載嘗試；若手機瀏覽器禁止 `file://` 本機檔案使用相機，請改由 HTTPS 網站或 localhost 開啟。
+
 ## 開發
 
 ```powershell
