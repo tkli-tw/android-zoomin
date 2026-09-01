@@ -19,10 +19,14 @@ flutter test
 flutter run
 ```
 
-Android debug APK：
+Android release APK（需要本機的 `android/key.properties` 與 release keystore）：
 
 ```powershell
-flutter build apk --debug
+flutter clean
+flutter pub get
+flutter build apk --release
 ```
+
+建置完成後的 APK 位於 `build/app/outputs/flutter-apk/app-release.apk`。簽署金鑰與密碼只保留在本機，已由 `.gitignore` 排除；請自行備份 `android/app/zoomin-release.jks` 與 `android/key.properties`，遺失後將無法用同一金鑰更新已發佈的 App。
 
 相機、手電筒與相簿儲存需要在 Android 實體裝置上驗證。開發意向與 AI 協作約定請見 `doc/`。
